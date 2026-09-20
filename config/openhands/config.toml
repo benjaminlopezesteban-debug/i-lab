@@ -1,0 +1,24 @@
+# i-lab :: OpenHands — configuración del agente
+# Se monta en /app/config dentro del contenedor (solo lectura).
+
+[core]
+workspace_base = "/workspace"
+max_iterations = 100
+# Los repos que el agente puede tocar viven en workspaces/ del repo.
+
+[llm]
+# Todo pasa por LiteLLM: un solo endpoint, una sola contabilidad de costo.
+model = "openai/opus-5"
+base_url = "http://litellm:4000"
+api_key = "env:LITELLM_MASTER_KEY"
+temperature = 0.0
+max_output_tokens = 8192
+
+[agent]
+enable_browsing = true
+enable_jupyter = true
+enable_prompt_extensions = true
+
+[sandbox]
+timeout = 120
+use_host_network = false

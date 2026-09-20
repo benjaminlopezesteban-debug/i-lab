@@ -1,0 +1,28 @@
+# i-lab :: workflow de ejemplo — revisión de un cambio en un repo de workspaces/
+# Formato propio del laboratorio; lo interpreta scripts/run-workflow.sh.
+name: revision-pr
+descripcion: Revisa el diff de la rama actual de un repo y deja un informe en docs/.
+
+entradas:
+  repo:
+    descripcion: Carpeta dentro de workspaces/
+    requerido: true
+  base:
+    descripcion: Rama contra la que comparar
+    por_defecto: main
+
+pasos:
+  - id: diff
+    tipo: shell
+    comando: git -C workspaces/{{ repo }} diff {{ base }}...HEAD
+
+  - id: revision
+    tipo: llm
+    modelo: opus-5
+    prompt: agents/prompts/revisor.md
+    entrada: "{{ pasos.diff.salida }}"
+
+  - id: informe
+    tipo: escribir_archivo
+    destino: docs/revisiones/{{ repo }}-{{ fecha }}.md
+    contenido: "{{ pasos.revision.salida }}"

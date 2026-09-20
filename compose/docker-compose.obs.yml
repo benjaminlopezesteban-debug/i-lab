@@ -1,0 +1,75 @@
+# i-lab :: observabilidad — Langfuse (trazas LLM) + Prometheus + Grafana
+# Langfuse reutiliza el PostgreSQL del stack core.
+name: ilab-obs
+
+networks:
+  ilab-net:
+    external: true
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  clickhouse-data:
+
+services:
+  langfuse:
+    image: langfuse/langfuse:3
+    container_name: ilab-langfuse
+    restart: unless-stopped
+    depends_on:
+      clickhouse: {condition: service_started}
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ilab}:${POSTGRES_PASSWORD}@postgres:5432/${LANGFUSE_DB:-langfuse}
+      NEXTAUTH_URL: ${LANGFUSE_PUBLIC_URL:-http://localhost:3001}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:?falta LANGFUSE_NEXTAUTH_SECRET en secrets/.env}
+      SALT: ${LANGFUSE_SALT:?falta LANGFUSE_SALT en secrets/.env}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:?falta LANGFUSE_ENCRYPTION_KEY en secrets/.env}
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-langfuse}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-langfuse}
+      REDIS_CONNECTION_STRING: redis://:${REDIS_PASSWORD}@redis:6379/3
+      TELEMETRY_ENABLED: "false"
+    ports:
+      - "${LANGFUSE_PORT:-3001}:3000"
+    networks: [ilab-net]
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    container_name: ilab-clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-langfuse}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-langfuse}
+      CLICKHOUSE_DB: default
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    networks: [ilab-net]
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: ilab-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    volumes:
+      - ../config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    networks: [ilab-net]
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: ilab-grafana
+    restart: unless-stopped
+    depends_on: [prometheus]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3002}:3000"
+    networks: [ilab-net]

@@ -1,0 +1,26 @@
+# --- Secretos ---------------------------------------------------------------
+secrets/*
+!secrets/.gitkeep
+!secrets/README.md
+!secrets/.env.example
+.env
+*.env
+!secrets/.env.example
+
+# --- Repos de trabajo del agente --------------------------------------------
+workspaces/*
+!workspaces/.gitkeep
+!workspaces/README.md
+
+# --- Salidas generadas ------------------------------------------------------
+docs/revisiones/*
+!docs/revisiones/.gitkeep
+*.log
+
+# --- Sistema y editores -----------------------------------------------------
+.DS_Store
+.idea/
+.vscode/
+__pycache__/
+*.py[cod]
+.venv/

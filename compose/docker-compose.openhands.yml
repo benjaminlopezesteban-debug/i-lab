@@ -1,0 +1,37 @@
+# i-lab :: agente — OpenHands apuntando al proxy LiteLLM del stack core
+# Requiere: stack core levantado (litellm en ilab-net) y el socket de Docker.
+name: ilab-openhands
+
+networks:
+  ilab-net:
+    external: true
+
+volumes:
+  openhands-state:
+
+services:
+  openhands:
+    image: docker.all-hands.dev/all-hands-ai/openhands:${OPENHANDS_VERSION:-0.59}
+    container_name: ilab-openhands
+    restart: unless-stopped
+    environment:
+      SANDBOX_RUNTIME_CONTAINER_IMAGE: docker.all-hands.dev/all-hands-ai/runtime:${OPENHANDS_VERSION:-0.59}-nikolaik
+      SANDBOX_USER_ID: ${UID:-1000}
+      # Los repos montados en workspaces/ son lo que el agente puede tocar
+      SANDBOX_VOLUMES: ${PWD}/workspaces:/workspace:rw
+      WORKSPACE_MOUNT_PATH: ${PWD}/workspaces
+      LOG_ALL_EVENTS: "true"
+      # Todo el tráfico de modelos pasa por LiteLLM
+      LLM_BASE_URL: http://litellm:4000
+      LLM_API_KEY: ${LITELLM_MASTER_KEY}
+      LLM_MODEL: ${OPENHANDS_MODEL:-openai/opus-5}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - openhands-state:/.openhands
+      - ../config/openhands:/app/config:ro
+      - ../workspaces:/workspace:rw
+    ports:
+      - "${OPENHANDS_PORT:-3000}:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks: [ilab-net]
