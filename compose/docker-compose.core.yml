@@ -1,83 +1,80 @@
-# i-lab :: núcleo — LiteLLM (proxy de modelos) + PostgreSQL + Redis
-# Uso: make core   |   docker compose -f compose/docker-compose.core.yml --env-file secrets/.env up -d
-name: ilab-core
-
+name: ia-lab-core
+#red el key es el nombre a que debe apuntar el name sirve solo dentro de docker
 networks:
-  ilab-net:
-    external: true
+  ia-lab:
+    name: ia-lab
+    driver: bridge
 
 volumes:
-  postgres-data:
-  redis-data:
+  postgres_data:
+  redis_data:
 
 services:
   postgres:
-    image: postgres:16-alpine
-    container_name: ilab-postgres
+    image: postgres:16
+    container_name: ia-lab-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-ilab}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD en secrets/.env}
-      POSTGRES_DB: ${POSTGRES_DB:-ilab}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:55432:5432"   # host:55432 -> contenedor:5432
+    networks:
+      - ia-lab
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ilab} -d ${POSTGRES_DB:-ilab}"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
       timeout: 5s
       retries: 10
-    networks: [ilab-net]
 
   redis:
     image: redis:7-alpine
-    container_name: ilab-redis
+    container_name: ia-lab-redis
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?falta REDIS_PASSWORD en secrets/.env}"]
+    command: >
+      sh -c 'if [ -n "$$REDIS_PASSWORD" ]; then
+               redis-server --requirepass "$$REDIS_PASSWORD";
+             else
+               redis-server;
+             fi'
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     volumes:
-      - redis-data:/data
+      - redis_data:/data
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:56379:6379"
+    networks:
+      - ia-lab
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
       retries: 10
-    networks: [ilab-net]
 
   litellm:
-    image: ghcr.io/berriai/litellm:main-stable
-    container_name: ilab-litellm
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: ia-lab-litellm
     restart: unless-stopped
     depends_on:
-      postgres: {condition: service_healthy}
-      redis: {condition: service_healthy}
-    command: ["--config", "/app/config/litellm.config.yaml", "--port", "4000"]
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ../.env
     environment:
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?falta LITELLM_MASTER_KEY en secrets/.env}
-      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:?falta LITELLM_SALT_KEY en secrets/.env}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-ilab}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ilab}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_HOST: redis
       REDIS_PORT: "6379"
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-      # Claves de proveedores (ver secrets/.env.example)
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      # Trazas hacia Langfuse (stack obs, opcional)
-      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
-      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
-      LANGFUSE_HOST: ${LANGFUSE_HOST:-http://langfuse:3000}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY}
     volumes:
-      - ../config/litellm.config.yaml:/app/config/litellm.config.yaml:ro
+      - ../config/litellm.config.yaml:/app/config.yaml:ro
     ports:
-      - "${LITELLM_PORT:-4000}:4000"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:4000/health/liveliness || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 40s
-    networks: [ilab-net]
+      - "127.0.0.1:4000:4000"
+    networks:
+      - ia-lab
+    command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "1"]

@@ -1,39 +1,53 @@
-# i-lab :: atajos sobre scripts/ — `make` a secas muestra esta ayuda.
-.DEFAULT_GOAL := help
-.PHONY: help bootstrap check core agent gateway obs all down clean logs ps
+include .env
+export
 
-help:  ## Muestra esta ayuda
-	@grep -E '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[1;34m%-12s\033[0m %s\n", $$1, $$2}'
+HELL := /bin/bash
+COMPOSE_FILE := compose/docker-compose.core.yml
+ENV_FILE     := .env
+DC           := docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE)
 
-bootstrap:  ## Prepara red, secrets/.env y carpetas
-	@./scripts/bootstrap.sh
+.PHONY: net	up down restart ps logs logs-litellm sh-pg sh-redis health models
 
-check:  ## Verifica secrets/.env
-	@./scripts/check-secrets.sh
+net:
+	@docker network inspect ia-lab >/dev/null 2>&1 || docker network create ia-lab
+	@echo "red ia-lab lista"
 
-core:  ## Levanta litellm + postgres + redis
-	@./scripts/up.sh core
+up:	
+	$(DC) up -d
 
-agent:  ## Levanta OpenHands
-	@./scripts/up.sh openhands
+down:
+	$(DC) down
 
-gateway:  ## Levanta las pasarelas de Telegram y WhatsApp
-	@./scripts/up.sh gateway
+restart:
+	$(DC) restart
 
-obs:  ## Levanta Langfuse, Prometheus y Grafana
-	@./scripts/up.sh obs
+ps:
+	$(DC) ps
 
-all:  ## Levanta todos los stacks
-	@./scripts/up.sh core openhands obs gateway
+logs:
+	$(DC) logs -f --tail=100
 
-down:  ## Detiene todos los stacks (conserva los datos)
-	@./scripts/down.sh
+logs-litellm:
+	$(DC) logs -f --tail=100 litellm
 
-clean:  ## Detiene y borra volúmenes (pide confirmación)
-	@./scripts/down.sh core openhands obs gateway --volumes
+sh-pg:
+	$(DC) exec postgres sh -c 'psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"'
 
-logs:  ## Logs del stack core (make logs STACK=obs)
-	@./scripts/logs.sh $(or $(STACK),core)
+sh-redis:
+	$(DC) exec redis sh -c 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping'
 
-ps:  ## Contenedores del laboratorio
-	@docker ps --filter "name=ilab-" --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+health:
+	@echo "--- Postgres ---"
+	@$(DC) exec -T postgres sh -c 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"' || true
+	@echo "--- Redis ---"
+	@$(DC) exec -T redis sh -c 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping' || true
+	@echo "--- LiteLLM liveliness ---"
+	@curl -s http://127.0.0.1:4000/health/liveliness || echo "(sin respuesta)"
+	@echo
+	@echo "--- LiteLLM readiness ---"
+	@curl -s http://127.0.0.1:4000/health/readiness || echo "(sin respuesta)"
+	@echo
+
+models:
+	@curl -s -H "Authorization: Bearer $$LITELLM_MASTER_KEY" \
+	  http://127.0.0.1:4000/v1/models | jq '.data[].id'
